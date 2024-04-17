@@ -4,6 +4,7 @@ import java.time.LocalDateTime
 
 import com.interana.eventsim.TimeUtilities._
 import com.interana.eventsim.buildin.RandomSongGenerator
+import com.interana.eventsim.buildin.RandomVideoContentGenerator
 import com.interana.eventsim.config.ConfigFromFile
 
 /**
@@ -24,12 +25,44 @@ class Session(var nextEventTimeStamp: Option[LocalDateTime],
     if (currentState.page=="NextSong") Some(RandomSongGenerator.nextSong()) else None
   var currentSongEnd:Option[LocalDateTime] =
     if (currentState.page=="NextSong") Some(nextEventTimeStamp.get.plusSeconds(currentSong.get._4.toInt)) else None
+  var currentContent: Option[(String, String, Double)] = None // Content ID, Title, Duration
+  var currentAd: Option[(String, String, Double)] = None // Ad ID, Ad Type, Duration
 
   def incrementEvent() = {
     val nextState = currentState.nextState(rng)
     nextState match {
       case None =>
-        done=true
+        done = true
+      case Some(state) =>
+        currentState = state
+        itemInSession += 1
+        nextEventTimeStamp = Some(nextEventTimeStamp.get.plusSeconds(exponentialRandomValue(alpha).toInt))
+
+        // Simulate content playback and ad insertion logic
+        state.page match {
+          case "PlayVideo" =>
+            currentContent = Some(RandomVideoContentGenerator.nextContent())
+            currentAd = None // Reset ad status when new content starts
+
+          case "PauseVideo" =>
+            // Optionally log pause events, currentContent remains unchanged
+
+          case "AdStart" =>
+            // Simulate an ad being started if conditions met, such as natural breaks
+            if (shouldStartAd()) {
+              currentAd = Some(RandomVideoContentGenerator.nextAd())
+              // Extend event time to include ad duration
+              nextEventTimeStamp = Some(nextEventTimeStamp.get.plusSeconds(currentAd.get._3.toInt))
+            }
+
+          case "AdEnd" =>
+            // Ad ends, possibly reset ad information
+            currentAd = None
+
+          case _ =>
+            // Other event types can be added with their own logic
+        }
+  
       case x if 300 until 399 contains x.get.status =>
         nextEventTimeStamp=Some(nextEventTimeStamp.get.plusSeconds(1))
         currentState = nextState.get
@@ -57,7 +90,11 @@ class Session(var nextEventTimeStamp: Option[LocalDateTime],
 
     }
   }
-
+  def shouldStartAd(): Boolean = {
+    // Logic to determine if an ad should start, e.g., between episodes or during a natural break in a movie
+    // This is a placeholder function and should be adapted to actual logic based on content type, user behavior, etc.
+    rng.nextDouble() < 0.3 // 30% chance to start an ad for demo purposes
+  }
   def nextSession =
     new Session(Some(Session.pickNextSessionStartTime(nextEventTimeStamp.get, beta)),
       alpha, beta, initialStates, currentState.auth, currentState.level)
