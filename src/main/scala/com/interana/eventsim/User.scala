@@ -91,6 +91,32 @@ class User(val alpha: Double,
         "length" -> session.currentSong.get._4
         )
 
+    // Handling different types of video-related events
+    session.currentState.page match {
+      case "PlayVideo" =>
+        m += (
+          "contentId" -> session.currentContent.get._1,  // assuming _1 is contentId
+          "title" -> session.currentContent.get._2,      // assuming _2 is title
+          "duration" -> session.currentContent.get._3    // assuming _3 is duration
+        )
+      case "PauseVideo" =>
+        m += (
+          "contentId" -> session.currentContent.get._1,
+          "pausedAt" -> session.currentContent.get._3    // assuming _3 is current timestamp or position
+        )
+      case "AdStart" =>
+        m += (
+          "adId" -> session.currentAd.get._1,            // assuming _1 is adId
+          "adType" -> session.currentAd.get._2,          // assuming _2 is adType
+          "videoResolution" -> session.currentAd.get._3  // assuming _3 is videoResolution
+        )
+      case "AdEnd" =>
+        m += (
+          "adId" -> session.currentAd.get._1,
+          "watchedDuration" -> session.currentAd.get._3  // assuming _3 is duration watched
+        )
+    }
+
     val j = new JSONObject(m)
     j.toString()
   }
@@ -112,6 +138,7 @@ class User(val alpha: Double,
     writer.writeNumberField("status", session.currentState.status)
     writer.writeStringField("level", session.currentState.level)
     writer.writeNumberField("itemInSession", session.itemInSession)
+
     if (showUserDetails) {
       props.foreach((p: (String, Any)) => {
         p._2 match {
@@ -130,6 +157,28 @@ class User(val alpha: Double,
       writer.writeStringField("song",  session.currentSong.get._3)
       writer.writeNumberField("length", session.currentSong.get._4)
     }
+
+    // Write additional details for new events
+    session.currentState.page match {
+      case "PlayVideo" | "PauseVideo" =>
+        writer.writeStringField("contentId", session.currentContent.get._1)
+        writer.writeStringField("title", session.currentContent.get._2)
+        if (session.currentState.page == "PlayVideo") {
+          writer.writeNumberField("duration", session.currentContent.get._3)
+        } else {  // PauseVideo
+          writer.writeNumberField("pausedAt", session.currentContent.get._3)
+        }
+
+      case "AdStart" | "AdEnd" =>
+        writer.writeStringField("adId", session.currentAd.get._1)
+        if (session.currentState.page == "AdStart") {
+          writer.writeStringField("adType", session.currentAd.get._2)
+          writer.writeStringField("videoResolution", session.currentAd.get._3)
+        } else {  // AdEnd
+          writer.writeNumberField("watchedDuration", session.currentAd.get._3)
+        }
+    }
+    
     writer.writeEndObject()
     writer.writeRaw('\n')
     writer.flush()
