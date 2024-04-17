@@ -2,14 +2,21 @@ eventsim
 ========
 
 Eventsim is a program that generates event data for testing and demos. It's written in Scala, because we are
-big data hipsters (at least sometimes). It's designed to replicate page requests for a fake music
-web site (picture something like Spotify); the results look like real use data, but are totally fake. You can
+big data hipsters (at least sometimes). Initially designed to replicate page requests for a fake music
+website (picture something like Spotify), Eventsim now also supports simulating user behavior on a fake OTT
+video streaming platform (akin to Netflix). The results look like real use data but are totally fake. You can
 configure the program to create as much data as you want: data for just a few users for a few hours, or data for a
 huge number of users of users over many years. You can write the data to files, or pipe it out to Apache Kafka.
 
 You can use the fake data for product development, correctness testing, demos, performance testing, training, or in any
 other place where a stream of real looking data is useful. You probably shouldn't use this data to research machine
 learning algorithms, and definitely shouldn't use it to understand how real people behave.
+
+New Feature: Video Streaming Simulation
+=======================================
+
+The latest version of Eventsim introduces the ability to simulate events for an OTT video streaming service. This includes user interactions like browsing, playing videos, pausing videos, and engaging with advertisements. The new simulation mode can be toggled through the command-line options, allowing you to switch between simulating a music or a video streaming service.
+
 
 Statistical Model
 =================
@@ -43,6 +50,8 @@ pseudo-random number generator: the generator is deterministic, but looks random
 You need to specify a configuration file (samples are included in `examples`). This file
 specifies how sessions are generated and how the fake website works. The simulator will also load in a set of data
 files that describe distributions for different parameters (like places, song names, and user agents).
+
+For video streaming simulations, additional parameters such as video titles, durations, and ad behaviors are also configurable.
 
 The simulator works by creating a priority queue of user sessions, ordered by the timestamp of the next event in
 each session. The simulator picks each session off the queue, outputs the details of the event, then determines the
@@ -118,6 +127,7 @@ To build the executable, run
 The program can accept a number of command line options:
 
     $ bin/eventsim --help
+        --simulate-video               toggle video streaming simulation mode
         -a, --attrition-rate  <arg>    annual user attrition rate (as a fraction of
                                        current, so 1% => 0.01) (default = 0.0)
         -c, --config  <arg>            config file
@@ -164,6 +174,11 @@ Example for about 2.5 M events (1000 users for a year, growing at 1% annually):
 Example for more events (30,000 users for a year, growing at 30% annually):
 
     $ bin/eventsim -c "examples/site.json" --from 365 --nusers 30000 --growth-rate 0.30 data/fake.json
+
+Example command to simulate video streaming:
+
+    $ bin/eventsim --simulate-video -c "examples/video_site.json" -n 1000 --from 365 data/fake_video.json
+
 
 Building huge data sets in parallel
 ===================================
