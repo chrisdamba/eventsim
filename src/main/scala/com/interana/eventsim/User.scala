@@ -5,7 +5,7 @@ import java.time.{ZoneOffset, LocalDateTime}
 
 import com.fasterxml.jackson.core.{JsonEncoding, JsonFactory}
 import com.interana.eventsim.config.ConfigFromFile
-
+import com.interana.eventsim.SubscriptionType.SubscriptionType
 import scala.util.parsing.json.JSONObject
 
 class User(val alpha: Double,
@@ -16,7 +16,11 @@ class User(val alpha: Double,
            val props: Map[String,Any],
            var device: scala.collection.immutable.Map[String,Any],
            val initialLevel: String,
-           val stream: OutputStream
+           val stream: OutputStream,
+           val preferredGenres: List[String],           // new attribute for preferred genres
+           val favoriteShows: List[String],             // new attribute for favorite shows
+           val viewingHours: Int,                       // new attribute for typical viewing hours per week
+           val subscriptionType: SubscriptionType       // new attribute for subscription type (e.g., 'basic', 'premium')
           ) extends Serializable with Ordered[User] {
 
   val userId = Counters.nextUserId
@@ -44,7 +48,13 @@ class User(val alpha: Double,
         // TODO: mark as churned
       }
       else {
-        session = session.nextSession
+        // Adjust the session logic based on user preferences and subscription type
+        if (subscriptionType == SubscriptionType.Premium && TimeUtilities.rng.nextDouble() < 0.5) {
+          // Simulate fewer ad interactions for premium users
+          session = session.nextSession.copy(adInteraction = false)
+        } else {
+          session = session.nextSession
+        }
       }
     }
   }
@@ -61,7 +71,11 @@ class User(val alpha: Double,
       "auth" -> session.currentState.auth,
       "method" -> session.currentState.method,
       "status" -> session.currentState.status,
-      "itemInSession" -> session.itemInSession
+      "itemInSession" -> session.itemInSession,
+      "preferredGenres" -> preferredGenres.mkString(","),
+      "favoriteShows" -> favoriteShows.mkString(","),
+      "viewingHours" -> viewingHours,
+      "subscriptionType" -> subscriptionType.toString 
     )
 
     if (showUserDetails)
