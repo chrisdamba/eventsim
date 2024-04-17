@@ -6,7 +6,7 @@ import java.time.{Duration, LocalDateTime, ZoneOffset}
 import java.util.Properties
 
 import com.interana.eventsim.Utilities.{SimilarSongParser, TrackListenCount}
-import com.interana.eventsim.buildin.{DeviceProperties, UserProperties}
+import com.interana.eventsim.buildin.{DeviceProperties, UserProperties, RandomVideoContentGenerator}
 import com.interana.eventsim.config.ConfigFromFile
 import kafka.producer.{Producer, ProducerConfig}
 import org.rogach.scallop.{ScallopOption, ScallopConf}
@@ -21,6 +21,9 @@ object Main extends App {
   val users = new mutable.PriorityQueue[User]()
 
   object ConfFromOptions extends ScallopConf(args) {
+    val simulateVideo = toggle("simulate-video", default = Some(false),
+      descrYes = "simulate video streaming events", descrNo = "simulate music streaming events")
+
     val nUsers: ScallopOption[Int] =
       opt[Int]("nusers", descr = "initial number of users",
         required = false, default = Option(1))
@@ -98,6 +101,7 @@ object Main extends App {
 
   ConfigFromFile.configFileLoader(ConfFromOptions.configFile())
 
+  val simulateVideo = ConfFromOptions.simulateVideo()
   var nUsers = ConfigFromFile.nUsers.getOrElse(ConfFromOptions.nUsers())
 
   val seed = if (ConfFromOptions.randomSeed.isSupplied)
@@ -127,26 +131,9 @@ object Main extends App {
 
   def generateEvents() = {
 
-    val out = if (kafkaProducer.nonEmpty) {
-      new KafkaOutputStream(kafkaProducer.get, ConfFromOptions.kafkaTopic.get.get)
-    } else if (ConfFromOptions.outputFile.isSupplied) {
-      new FileOutputStream(ConfFromOptions.outputFile())
-    } else {
-      System.out
-    }
+    val out = determineOutputDestination(ConfFromOptions, kafkaProducer)
 
-    (0 until nUsers).foreach((_) =>
-      users += new User(
-        ConfigFromFile.alpha * logNormalRandomValue,
-        ConfigFromFile.beta * logNormalRandomValue,
-        startTime,
-        ConfigFromFile.initialStates,
-        ConfigFromFile.authGenerator.randomThing,
-        UserProperties.randomProps,
-        DeviceProperties.randomProps,
-        ConfigFromFile.levelGenerator.randomThing,
-        out
-      ))
+    initializeUsers(simulateVideo, out, nUsers, startTime)
 
     val growthRate = ConfigFromFile.growthRate.getOrElse(ConfFromOptions.growthRate.get.get)
     if (growthRate > 0) {
@@ -227,6 +214,46 @@ object Main extends App {
     SimilarSongParser.compute()
   else
     this.generateEvents()
-
 }
 
+def determineOutputDestination(conf: ConfFromOptions.type, kafkaProducer: Option[Producer[Array[Byte], Array[Byte]]]) = {
+  if (kafkaProducer.nonEmpty) {
+    new KafkaOutputStream(kafkaProducer.get, conf.kafkaTopic.get.get)
+  } else if (conf.outputFile.isSupplied) {
+    new FileOutputStream(conf.outputFile())
+  } else {
+    System.out
+  }
+}
+
+def initializeUsers(simulateVideo: Boolean, out: FileOutputStream, nUsers: Int, startTime: LocalDateTime) {
+  val userGenerator = if (simulateVideo) {
+    () => new User(
+      ConfigFromFile.alpha * logNormalRandomValue,
+      ConfigFromFile.beta * logNormalRandomValue,
+      startTime,
+      ConfigFromFile.initialStates,
+      ConfigFromFile.authGenerator.randomThing,
+      UserProperties.randomProps,
+      DeviceProperties.randomProps,
+      ConfigFromFile.levelGenerator.randomThing,
+      out,
+      RandomVideoContentGenerator.nextContent()._1, // Assuming the User class accepts a contentId
+      RandomVideoContentGenerator.nextAd()._1      // Assuming the User class accepts an adId
+    )
+  } else {
+    () => new User(
+      ConfigFromFile.alpha * logNormalRandomValue,
+      ConfigFromFile.beta * logNormalRandomValue,
+      startTime,
+      ConfigFromFile.initialStates,
+      ConfigFromFile.authGenerator.randomThing,
+      UserProperties.randomProps,
+      DeviceProperties.randomProps,
+      ConfigFromFile.levelGenerator.randomThing,
+      out
+    )
+  }
+
+  (0 until nUsers).foreach((_) => users += userGenerator())
+}
