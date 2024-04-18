@@ -10,12 +10,13 @@ import com.interana.eventsim.config.ConfigFromFile
 /**
  * Object to capture session related calculations and properties
  */
-class Session(var nextEventTimeStamp: Option[LocalDateTime],
+case class Session(var nextEventTimeStamp: Option[LocalDateTime],
               val alpha: Double, // expected request inter-arrival time
               val beta: Double,  // expected session inter-arrival time
               val initialStates: scala.collection.Map[(String,String),WeightedRandomThingGenerator[State]],
               val auth: String,
-              val level: String ) {
+              val level: String,
+              adInteraction: Boolean = true) { // Assuming you need to manage ad interactions
 
   val sessionId = Counters.nextSessionId
   var itemInSession = 0

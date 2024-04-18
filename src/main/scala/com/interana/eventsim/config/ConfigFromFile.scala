@@ -4,6 +4,7 @@ import com.interana.eventsim.{Constants, State, WeightedRandomThingGenerator}
 
 import scala.collection.mutable
 import scala.io.Source
+import play.api.libs.json._
 
 /**
  *  Site configuration (loaded from JSON file, used to run simulation)
@@ -75,16 +76,37 @@ object ConfigFromFile {
   val GROWTH_RATE = "growth-rate"
   val TAG = "tag"
 
+  def parseJson(rawContents: String): Option[JsValue] = {
+    try {
+      Some(Json.parse(rawContents))
+    } catch {
+      case e: Exception => None
+    }
+  }
+
+  def jsonToMap(json: JsValue): Map[String, Any] = json match {
+    case JsObject(fields) => fields.map {
+      case (key, value) => key -> (value match {
+        case JsString(s) => s
+        case JsNumber(n) => n
+        case JsBoolean(b) => b
+        case JsArray(arr) => arr.map(jsonToMap).toList
+        case other => jsonToMap(other) // Recursive call for nested objects
+      })
+    }.toMap
+    case _ => throw new IllegalArgumentException("Expected JSON object")
+  }
+
   def configFileLoader(fn: String) = {
 
     // simple JSON based state file format (to maximize readability)
 
     val s = Source.fromFile(fn)
     val rawContents = s.mkString
-    val jsonContents = (scala.util.parsing.json.JSON.parseFull(rawContents) match {
-      case e: Some[Any] => e.get
-      case _ => throw new Exception("Could not parse the state file")
-    }).asInstanceOf[Map[String,Any]]
+    val jsonContents = parseJson(rawContents) match {
+      case Some(json) => jsonToMap(json)
+      case None => throw new Exception("Could not parse the state file")
+    }
     s.close()
 
     jsonContents.get(ALPHA) match {

@@ -6,7 +6,8 @@ import java.time.{ZoneOffset, LocalDateTime}
 import com.fasterxml.jackson.core.{JsonEncoding, JsonFactory}
 import com.interana.eventsim.config.ConfigFromFile
 import com.interana.eventsim.SubscriptionType.SubscriptionType
-import scala.util.parsing.json.JSONObject
+import play.api.libs.json._
+
 
 class User(val alpha: Double,
            val beta: Double,
@@ -37,6 +38,21 @@ class User(val alpha: Double,
         thatValue.get.compareTo(thisValue.get)
     }
 
+    implicit val anyJsonWrites: Writes[Any] = new Writes[Any] {
+      def writes(any: Any): JsValue = any match {
+        case n: Int => JsNumber(n)
+        case s: String => JsString(s)
+        case b: Boolean => JsBoolean(b)
+        case _ => JsString(any.toString)  // Fallback for unknown types
+      }
+    }
+
+    implicit val mapWrites: Writes[Map[String, Any]] = new Writes[Map[String, Any]] {
+      def writes(map: Map[String, Any]): JsValue = JsObject(map.map {
+        case (key, value) => key -> Json.toJson(value)(anyJsonWrites)
+      })
+    }
+
   def nextEvent(): Unit = nextEvent(0.0)
 
   def nextEvent(prAttrition: Double) = {
@@ -61,9 +77,9 @@ class User(val alpha: Double,
 
   private val EMPTY_MAP = Map()
 
-  def eventString = {
+  def eventString: String = {
     val showUserDetails = ConfigFromFile.showUserWithState(session.currentState.auth)
-    var m = device.+(
+    var m: Map[String, Any] = Map(
       "ts" -> session.nextEventTimeStamp.get.toInstant(ZoneOffset.UTC).toEpochMilli,
       "userId" -> (if (showUserDetails) userId else ""),
       "sessionId" -> session.sessionId,
@@ -75,50 +91,40 @@ class User(val alpha: Double,
       "preferredGenres" -> preferredGenres.mkString(","),
       "favoriteShows" -> favoriteShows.mkString(","),
       "viewingHours" -> viewingHours,
-      "subscriptionType" -> subscriptionType.toString 
+      "subscriptionType" -> subscriptionType.toString
     )
 
-    if (showUserDetails)
-      m ++= props
-
-    /* most of the event generator code is pretty generic, but this is hard-coded
-     * for a fake music web site
-     */
-    if (session.currentState.page=="NextSong")
-      m += (
-        "artist" -> session.currentSong.get._2,
-        "song" -> session.currentSong.get._3,
-        "length" -> session.currentSong.get._4
-        )
-
-    // Handling different types of video-related events
-    session.currentState.page match {
-      case "PlayVideo" =>
-        m += (
-          "contentId" -> session.currentContent.get._1,  // assuming _1 is contentId
-          "title" -> session.currentContent.get._2,      // assuming _2 is title
-          "duration" -> session.currentContent.get._3    // assuming _3 is duration
-        )
-      case "PauseVideo" =>
-        m += (
-          "contentId" -> session.currentContent.get._1,
-          "pausedAt" -> session.currentContent.get._3    // assuming _3 is current timestamp or position
-        )
-      case "AdStart" =>
-        m += (
-          "adId" -> session.currentAd.get._1,            // assuming _1 is adId
-          "adType" -> session.currentAd.get._2,          // assuming _2 is adType
-          "videoResolution" -> session.currentAd.get._3  // assuming _3 is videoResolution
-        )
-      case "AdEnd" =>
-        m += (
-          "adId" -> session.currentAd.get._1,
-          "watchedDuration" -> session.currentAd.get._3  // assuming _3 is duration watched
-        )
+    // Add properties dynamically based on user details
+    if (showUserDetails) {
+      m = m ++ props.mapValues {
+        case v: Long => v
+        case v: Int => v
+        case v: Double => v
+        case v: Float => v.toFloat
+        case v: String => v
+        case other => other.toString
+      }
     }
 
-    val j = new JSONObject(m)
-    j.toString()
+    // Update or handle additional attributes based on current session state
+    val additionalDetails = session.currentState.page match {
+      case "PlayVideo" | "PauseVideo" | "AdStart" | "AdEnd" =>
+        Map(
+          "contentId" -> session.currentContent.map(_._1),
+          "title" -> session.currentContent.map(_._2),
+          "duration" -> session.currentContent.map(_._3),
+          "pausedAt" -> session.currentContent.map(_._3),
+          "adId" -> session.currentAd.map(_._1),
+          "adType" -> session.currentAd.map(_._2),
+          "videoResolution" -> session.currentAd.map(_._3),
+          "watchedDuration" -> session.currentAd.map(_._3)
+        ).collect { case (k, Some(v)) => k -> v }  // Filter out None values
+      case _ => Map.empty[String, Any]
+    }
+
+    m = m ++ additionalDetails
+
+    Json.stringify(Json.toJson(m)(mapWrites))
   }
 
 
@@ -173,7 +179,7 @@ class User(val alpha: Double,
         writer.writeStringField("adId", session.currentAd.get._1)
         if (session.currentState.page == "AdStart") {
           writer.writeStringField("adType", session.currentAd.get._2)
-          writer.writeStringField("videoResolution", session.currentAd.get._3)
+          writer.writeStringField("videoResolution", session.currentAd.get._3.toString)
         } else {  // AdEnd
           writer.writeNumberField("watchedDuration", session.currentAd.get._3)
         }

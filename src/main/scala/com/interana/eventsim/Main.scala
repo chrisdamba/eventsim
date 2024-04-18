@@ -1,6 +1,6 @@
 package com.interana.eventsim
 
-import java.io.FileOutputStream
+import java.io.{FileOutputStream,OutputStream}
 import java.time.temporal.ChronoUnit
 import java.time.{Duration, LocalDateTime, ZoneOffset}
 import java.util.Properties
@@ -129,6 +129,65 @@ object Main extends App {
 
   val realTime = ConfFromOptions.realTime.get.get
 
+  def determineOutputDestination(conf: ConfFromOptions.type, kafkaProducer: Option[Producer[Array[Byte], Array[Byte]]]) = {
+    if (kafkaProducer.nonEmpty) {
+      new KafkaOutputStream(kafkaProducer.get, conf.kafkaTopic.get.get)
+    } else if (conf.outputFile.isSupplied) {
+      new FileOutputStream(conf.outputFile())
+    } else {
+      System.out
+    }
+  }
+
+  // Define a random generator for viewing hours, assuming 0-40 hours per week
+  def randomViewingHours: Int = scala.util.Random.nextInt(41)
+
+  // Randomly select a subscription type if it's an enum with values like Basic or Premium
+  def randomSubscriptionType: SubscriptionType.SubscriptionType = {
+    if (scala.util.Random.nextBoolean()) SubscriptionType.Basic else SubscriptionType.Premium
+  }
+
+  def initializeUsers(simulateVideo: Boolean, out: OutputStream, nUsers: Int, startTime: LocalDateTime) {
+    val userGenerator = if (simulateVideo) {
+      // Fetch random genres and shows
+      val preferredGenres = RandomVideoContentGenerator.randomGenres(3)  // Generate a list of 3 random genres
+      val favoriteShows = RandomVideoContentGenerator.randomShows(3)  // Generate a list of 3 random TV shows
+      () => new User(
+        ConfigFromFile.alpha * logNormalRandomValue,
+        ConfigFromFile.beta * logNormalRandomValue,
+        startTime,
+        ConfigFromFile.initialStates,
+        ConfigFromFile.authGenerator.randomThing,
+        UserProperties.randomProps,
+        DeviceProperties.randomProps,
+        ConfigFromFile.levelGenerator.randomThing,
+        out,
+        preferredGenres,
+        favoriteShows,
+        randomViewingHours,                           // Generated viewing hours
+        randomSubscriptionType                        // Generated subscription type
+      )
+    } else {
+      () => new User(
+        ConfigFromFile.alpha * logNormalRandomValue,
+        ConfigFromFile.beta * logNormalRandomValue,
+        startTime,
+        ConfigFromFile.initialStates,
+        ConfigFromFile.authGenerator.randomThing,
+        UserProperties.randomProps,
+        DeviceProperties.randomProps,
+        ConfigFromFile.levelGenerator.randomThing,
+        out,
+        List.empty[String],                          // No preferred genres for music mode
+        List.empty[String],                          // No favorite shows for music mode
+        randomViewingHours,                          // Generated viewing hours
+        randomSubscriptionType                       // Generated subscription type
+      )
+    }
+
+    (0 until nUsers).foreach((_) => users += userGenerator())
+  }
+
   def generateEvents() = {
 
     val out = determineOutputDestination(ConfFromOptions, kafkaProducer)
@@ -140,6 +199,8 @@ object Main extends App {
       var current = startTime
       while (current.isBefore(endTime)) {
         val mu = Constants.SECONDS_PER_YEAR / (nUsers * growthRate)
+        val preferredGenres = RandomVideoContentGenerator.randomGenres(3)  // Generate a list of 3 random genres
+        val favoriteShows = RandomVideoContentGenerator.randomShows(3)  // Generate a list of 3 random TV shows
         current = current.plusSeconds(TimeUtilities.exponentialRandomValue(mu).toInt)
         users += new User(
           ConfigFromFile.alpha * logNormalRandomValue,
@@ -150,7 +211,11 @@ object Main extends App {
           UserProperties.randomNewProps(current),
           DeviceProperties.randomProps,
           ConfigFromFile.newUserLevel,
-          out
+          out,
+          List.empty[String],                          // No preferred genres for music mode
+          List.empty[String],                          // No favorite shows for music mode
+          randomViewingHours,                          // Generated viewing hours
+          randomSubscriptionType                       // Generated subscription type
         )
         nUsers += 1
       }
@@ -214,46 +279,4 @@ object Main extends App {
     SimilarSongParser.compute()
   else
     this.generateEvents()
-}
-
-def determineOutputDestination(conf: ConfFromOptions.type, kafkaProducer: Option[Producer[Array[Byte], Array[Byte]]]) = {
-  if (kafkaProducer.nonEmpty) {
-    new KafkaOutputStream(kafkaProducer.get, conf.kafkaTopic.get.get)
-  } else if (conf.outputFile.isSupplied) {
-    new FileOutputStream(conf.outputFile())
-  } else {
-    System.out
-  }
-}
-
-def initializeUsers(simulateVideo: Boolean, out: FileOutputStream, nUsers: Int, startTime: LocalDateTime) {
-  val userGenerator = if (simulateVideo) {
-    () => new User(
-      ConfigFromFile.alpha * logNormalRandomValue,
-      ConfigFromFile.beta * logNormalRandomValue,
-      startTime,
-      ConfigFromFile.initialStates,
-      ConfigFromFile.authGenerator.randomThing,
-      UserProperties.randomProps,
-      DeviceProperties.randomProps,
-      ConfigFromFile.levelGenerator.randomThing,
-      out,
-      RandomVideoContentGenerator.nextContent()._1, // Assuming the User class accepts a contentId
-      RandomVideoContentGenerator.nextAd()._1      // Assuming the User class accepts an adId
-    )
-  } else {
-    () => new User(
-      ConfigFromFile.alpha * logNormalRandomValue,
-      ConfigFromFile.beta * logNormalRandomValue,
-      startTime,
-      ConfigFromFile.initialStates,
-      ConfigFromFile.authGenerator.randomThing,
-      UserProperties.randomProps,
-      DeviceProperties.randomProps,
-      ConfigFromFile.levelGenerator.randomThing,
-      out
-    )
-  }
-
-  (0 until nUsers).foreach((_) => users += userGenerator())
 }
